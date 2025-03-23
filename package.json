@@ -10,8 +10,20 @@
     "build": "mkdir -p data"
   },
   "dependencies": {
-    "express": "^4.18.2",
+    "body-parser": "^1.20.3",
     "cors": "^2.8.5",
-    "body-parser": "^1.20.1"
-  }
+    "express": "^4.21.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/neco2007/inventory-manager.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/neco2007/inventory-manager/issues"
+  },
+  "homepage": "https://github.com/neco2007/inventory-manager#readme",
+  "description": ""
 }
