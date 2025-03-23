@@ -1,33 +1,50 @@
-// 在庫管理サイト - 簡易版サーバー（MongoDB不要）
+// 在庫管理サイト - Firebase Firestore版サーバー
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
-const fs = require('fs');
 const path = require('path');
+
+// Firebase初期化
+const { initializeApp } = require('firebase/app');
+const { 
+  getFirestore, 
+  collection, 
+  doc,
+  getDoc,
+  getDocs, 
+  addDoc, 
+  updateDoc,
+  deleteDoc,
+  query,
+  where,
+  serverTimestamp
+} = require('firebase/firestore');
 
 // Express アプリの初期化
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// データファイルのパス
-const DATA_FILE = path.join(__dirname, 'data', 'inventory.json');
-const NG_WORDS_FILE = path.join(__dirname, 'data', 'ng_words.json');
+// Firebase設定
+const firebaseConfig = {
+  apiKey: "AIzaSyCTQG5UySSF7BbcvLEYUmlqbxnsol956Yc",
+  authDomain: "kanrigamen-32823.firebaseapp.com",
+  projectId: "kanrigamen-32823",
+  storageBucket: "kanrigamen-32823.firebasestorage.app",
+  messagingSenderId: "1048885212553",
+  appId: "1:1048885212553:web:64ca3a202fd4df566b5d58"
+};
 
-// ディレクトリがなければ作成
-if (!fs.existsSync(path.dirname(DATA_FILE))) {
-  fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true });
-}
+// Firebaseアプリの初期化
+const firebaseApp = initializeApp(firebaseConfig);
+const db = getFirestore(firebaseApp);
 
-// データファイルがなければ作成
-if (!fs.existsSync(DATA_FILE)) {
-  fs.writeFileSync(DATA_FILE, JSON.stringify([]));
-}
+// コレクション名
+const ITEMS_COLLECTION = 'inventory';
+const SETTINGS_COLLECTION = 'settings';
 
-// NGワードファイルがなければ作成
-if (!fs.existsSync(NG_WORDS_FILE)) {
-  // デフォルトのNGワードリスト
-  const defaultNgWords = [
-    "Copic", "IL BISONTE", "Lindt", "'47", "★wy★", "101 DALMATIANS", "10Gtek", "17906697543", 
+// デフォルトのNGワード
+const DEFAULT_NG_WORDS = [
+  "Copic", "IL BISONTE", "Lindt", "'47", "★wy★", "101 DALMATIANS", "10Gtek", "17906697543", 
             "2pac", "397395458?", "3CE", "3Dペン", "3M", "5 Seconds Of Summer", "5.11", "52TOYS", 
             "551HORAI", "551蓬莱", "8tail", "A Bathing Ape", "A. LANGE & SOHNE", "A.D.M.J.", 
             "A.LANGE&SOHNE", "A.P.C.", "a.v.v", "A&F", "A＆J", "A＆W", "A|X ARMANI EXCHANGE", 
@@ -737,14 +754,14 @@ if (!fs.existsSync(NG_WORDS_FILE)) {
             "頭文字D", "風の谷のナウシカ", "風の谷のナウシカ", "風の音", "風林火山", "風立ちぬ", 
             "香蘭社", "鬼滅の刃", "魔女の宅急便", "魔女の宅急便", "魔女宅", "魔法少女まどか☆マギカ", 
             "魔王城でおやすみ", "鳩居堂", "鳩居堂", "鹿島アントラーズ", "黒子のバスケ", "黒鯛工房"
-  ];
-  fs.writeFileSync(NG_WORDS_FILE, JSON.stringify(defaultNgWords, null, 2));
-}
+];
 
 // ミドルウェアの設定
 app.use(cors());
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
+
+// 静的ファイルの提供
 app.use(express.static(path.join(__dirname, 'public')));
 
 // エラーハンドリングミドルウェア
@@ -753,70 +770,103 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'サーバーエラーが発生しました', details: err.message });
 });
 
-// データの読み込み
-function loadData() {
+// NGワードの初期化確認
+async function initializeNgWords() {
   try {
-    const data = fs.readFileSync(DATA_FILE, 'utf8');
-    return JSON.parse(data);
+    const settingsRef = collection(db, SETTINGS_COLLECTION);
+    const ngWordsQuery = query(settingsRef, where("type", "==", "ngwords"));
+    const querySnapshot = await getDocs(ngWordsQuery);
+    
+    if (querySnapshot.empty) {
+      // NGワード設定がなければ作成
+      await addDoc(collection(db, SETTINGS_COLLECTION), {
+        type: "ngwords",
+        words: DEFAULT_NG_WORDS,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+      console.log('デフォルトのNGワードを登録しました');
+    }
   } catch (error) {
-    console.error('データの読み込みに失敗しました:', error);
-    return [];
-  }
-}
-
-// データの保存
-function saveData(data) {
-  try {
-    fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
-    return true;
-  } catch (error) {
-    console.error('データの保存に失敗しました:', error);
-    return false;
-  }
-}
-
-// NGワードの読み込み
-function loadNgWords() {
-  try {
-    const data = fs.readFileSync(NG_WORDS_FILE, 'utf8');
-    return JSON.parse(data);
-  } catch (error) {
-    console.error('NGワードの読み込みに失敗しました:', error);
-    return [];
+    console.error('NGワード初期化エラー:', error);
   }
 }
 
 // NGワードのチェック
-function checkNgWords(text) {
+async function checkNgWords(text) {
   if (!text) return { containsNgWord: false, matchedWords: [] };
   
-  const ngWords = loadNgWords();
-  const matchedWords = [];
-  
-  const lowerText = text.toLowerCase();
-  
-  for (const word of ngWords) {
-    if (lowerText.includes(word.toLowerCase())) {
-      matchedWords.push(word);
+  try {
+    // NGワードリストを取得
+    const settingsRef = collection(db, SETTINGS_COLLECTION);
+    const ngWordsQuery = query(settingsRef, where("type", "==", "ngwords"));
+    const querySnapshot = await getDocs(ngWordsQuery);
+    
+    // NGワードがなければデフォルト使用
+    let ngWords = DEFAULT_NG_WORDS;
+    
+    if (!querySnapshot.empty) {
+      const ngWordsDoc = querySnapshot.docs[0];
+      ngWords = ngWordsDoc.data().words || DEFAULT_NG_WORDS;
     }
+    
+    const matchedWords = [];
+    const lowerText = text.toLowerCase();
+    
+    for (const word of ngWords) {
+      if (lowerText.includes(word.toLowerCase())) {
+        matchedWords.push(word);
+      }
+    }
+    
+    return {
+      containsNgWord: matchedWords.length > 0,
+      matchedWords: matchedWords
+    };
+  } catch (error) {
+    console.error('NGワードチェックエラー:', error);
+    return { containsNgWord: false, matchedWords: [] };
   }
-  
-  return {
-    containsNgWord: matchedWords.length > 0,
-    matchedWords: matchedWords
-  };
 }
 
 // テスト用エンドポイント
-app.get('/api/test', (req, res) => {
-  res.json({ message: 'API接続テスト成功' });
+app.get('/api/test', async (req, res) => {
+  try {
+    res.json({ 
+      message: 'API接続テスト成功',
+      database: 'Firebase Firestore',
+      environment: process.env.VERCEL ? 'Vercel' : 'その他',
+      timestamp: new Date().toISOString()
+    });
+  } catch (err) {
+    console.error('テストエラー:', err);
+    res.status(500).json({ error: 'テストに失敗しました', details: err.message });
+  }
 });
 
 // API ルート
 // 商品一覧を取得
-app.get('/api/inventory', (req, res) => {
+app.get('/api/inventory', async (req, res) => {
   try {
-    const items = loadData();
+    const inventoryRef = collection(db, ITEMS_COLLECTION);
+    const querySnapshot = await getDocs(inventoryRef);
+    
+    const items = [];
+    querySnapshot.forEach((doc) => {
+      const data = doc.data();
+      // Firestoreのタイムスタンプをシリアライズ可能な形式に変換
+      const item = {
+        _id: doc.id,
+        ...data,
+        createdAt: data.createdAt ? data.createdAt.toDate().toISOString() : new Date().toISOString(),
+        updatedAt: data.updatedAt ? data.updatedAt.toDate().toISOString() : new Date().toISOString()
+      };
+      items.push(item);
+    });
+    
+    // 作成日時の降順でソート
+    items.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    
     res.json(items);
   } catch (err) {
     console.error('商品取得エラー:', err);
@@ -825,9 +875,19 @@ app.get('/api/inventory', (req, res) => {
 });
 
 // NGワード一覧を取得
-app.get('/api/ng-words', (req, res) => {
+app.get('/api/ng-words', async (req, res) => {
   try {
-    const ngWords = loadNgWords();
+    const settingsRef = collection(db, SETTINGS_COLLECTION);
+    const ngWordsQuery = query(settingsRef, where("type", "==", "ngwords"));
+    const querySnapshot = await getDocs(ngWordsQuery);
+    
+    let ngWords = DEFAULT_NG_WORDS;
+    
+    if (!querySnapshot.empty) {
+      const ngWordsDoc = querySnapshot.docs[0];
+      ngWords = ngWordsDoc.data().words || DEFAULT_NG_WORDS;
+    }
+    
     res.json(ngWords);
   } catch (err) {
     console.error('NGワード取得エラー:', err);
@@ -836,13 +896,33 @@ app.get('/api/ng-words', (req, res) => {
 });
 
 // NGワードを更新
-app.post('/api/ng-words', (req, res) => {
+app.post('/api/ng-words', async (req, res) => {
   try {
     if (!Array.isArray(req.body)) {
       return res.status(400).json({ error: 'NGワードは配列形式で送信してください' });
     }
     
-    fs.writeFileSync(NG_WORDS_FILE, JSON.stringify(req.body, null, 2));
+    const settingsRef = collection(db, SETTINGS_COLLECTION);
+    const ngWordsQuery = query(settingsRef, where("type", "==", "ngwords"));
+    const querySnapshot = await getDocs(ngWordsQuery);
+    
+    if (!querySnapshot.empty) {
+      // 既存のドキュメントを更新
+      const ngWordsDoc = querySnapshot.docs[0];
+      await updateDoc(doc(db, SETTINGS_COLLECTION, ngWordsDoc.id), {
+        words: req.body,
+        updatedAt: serverTimestamp()
+      });
+    } else {
+      // 新規ドキュメントを作成
+      await addDoc(collection(db, SETTINGS_COLLECTION), {
+        type: "ngwords",
+        words: req.body,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+    }
+    
     res.json({ message: 'NGワードが更新されました', ngWords: req.body });
   } catch (err) {
     console.error('NGワード更新エラー:', err);
@@ -851,7 +931,7 @@ app.post('/api/ng-words', (req, res) => {
 });
 
 // NGワードチェック
-app.post('/api/check-ng-words', (req, res) => {
+app.post('/api/check-ng-words', async (req, res) => {
   try {
     const { text } = req.body;
     
@@ -859,7 +939,7 @@ app.post('/api/check-ng-words', (req, res) => {
       return res.status(400).json({ error: 'テキストが指定されていません' });
     }
     
-    const result = checkNgWords(text);
+    const result = await checkNgWords(text);
     res.json(result);
   } catch (err) {
     console.error('NGワードチェックエラー:', err);
@@ -868,24 +948,27 @@ app.post('/api/check-ng-words', (req, res) => {
 });
 
 // 商品を追加
-app.post('/api/inventory', (req, res) => {
+app.post('/api/inventory', async (req, res) => {
   try {
     // リクエストボディをログ出力
     console.log('受信したデータ:', req.body);
     
-    const items = loadData();
-    
     // URLが既に存在するかチェック
-    if (req.body.url && items.find(item => item.url === req.body.url)) {
-      return res.status(400).json({ error: 'この商品は既に登録されています' });
+    if (req.body.url) {
+      const inventoryRef = collection(db, ITEMS_COLLECTION);
+      const urlQuery = query(inventoryRef, where("url", "==", req.body.url));
+      const querySnapshot = await getDocs(urlQuery);
+      
+      if (!querySnapshot.empty) {
+        return res.status(400).json({ error: 'この商品は既に登録されています' });
+      }
     }
     
     // NGワードチェック
-    const titleCheck = checkNgWords(req.body.title);
+    const titleCheck = await checkNgWords(req.body.title);
     
     // 新しい商品を作成
     const newItem = {
-      _id: Date.now().toString(), // 簡易IDとしてタイムスタンプを使用
       title: req.body.title || '無題',
       url: req.body.url || '',
       price: parseInt(req.body.price) || 0,
@@ -896,18 +979,25 @@ app.post('/api/inventory', (req, res) => {
       status: '待機中',
       containsNgWord: titleCheck.containsNgWord,
       matchedNgWords: titleCheck.matchedWords,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    };
+    
+    // 商品を保存
+    const docRef = await addDoc(collection(db, ITEMS_COLLECTION), newItem);
+    
+    // タイムスタンプをシリアライズ可能な形式に変換
+    const responseItem = {
+      _id: docRef.id,
+      ...newItem,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
     
-    // 商品を保存
-    items.push(newItem);
-    saveData(items);
-    
     // NGワード検出通知を含めたレスポンス
     const response = { 
       message: '商品が追加されました',
-      item: newItem
+      item: responseItem
     };
     
     if (titleCheck.containsNgWord) {
@@ -923,43 +1013,57 @@ app.post('/api/inventory', (req, res) => {
 });
 
 // 商品を更新
-app.put('/api/inventory/:id', (req, res) => {
+app.put('/api/inventory/:id', async (req, res) => {
   try {
-    const items = loadData();
     const itemId = req.params.id;
     
     // 商品を検索
-    const itemIndex = items.findIndex(item => item._id === itemId);
-    if (itemIndex === -1) {
+    const itemRef = doc(db, ITEMS_COLLECTION, itemId);
+    const itemSnapshot = await getDoc(itemRef);
+    
+    if (!itemSnapshot.exists()) {
       return res.status(404).json({ error: '商品が見つかりません' });
     }
     
+    const item = itemSnapshot.data();
+    
     // NGワードチェック（タイトルが更新された場合）
     let titleCheck = { containsNgWord: false, matchedWords: [] };
-    if (req.body.title && req.body.title !== items[itemIndex].title) {
-      titleCheck = checkNgWords(req.body.title);
+    if (req.body.title && req.body.title !== item.title) {
+      titleCheck = await checkNgWords(req.body.title);
     } else {
       // 既存のNGワードステータスを維持
-      titleCheck.containsNgWord = items[itemIndex].containsNgWord;
-      titleCheck.matchedWords = items[itemIndex].matchedNgWords || [];
+      titleCheck.containsNgWord = item.containsNgWord;
+      titleCheck.matchedWords = item.matchedNgWords || [];
     }
     
-    // 商品を更新
-    const updatedItem = {
-      ...items[itemIndex],
+    // 更新データを準備
+    const updateData = {
       ...req.body,
       containsNgWord: titleCheck.containsNgWord,
       matchedNgWords: titleCheck.matchedWords,
-      updatedAt: new Date().toISOString()
+      updatedAt: serverTimestamp()
     };
     
-    items[itemIndex] = updatedItem;
-    saveData(items);
+    // 商品を更新
+    await updateDoc(itemRef, updateData);
+    
+    // 更新後の商品を取得
+    const updatedSnapshot = await getDoc(itemRef);
+    const updatedItem = updatedSnapshot.data();
+    
+    // タイムスタンプをシリアライズ可能な形式に変換
+    const responseItem = {
+      _id: itemId,
+      ...updatedItem,
+      createdAt: updatedItem.createdAt ? updatedItem.createdAt.toDate().toISOString() : new Date().toISOString(),
+      updatedAt: updatedItem.updatedAt ? updatedItem.updatedAt.toDate().toISOString() : new Date().toISOString()
+    };
     
     // NGワード検出通知を含めたレスポンス
     const response = { 
       message: '商品が更新されました',
-      item: updatedItem
+      item: responseItem
     };
     
     if (titleCheck.containsNgWord) {
@@ -975,27 +1079,34 @@ app.put('/api/inventory/:id', (req, res) => {
 });
 
 // 商品を削除
-app.delete('/api/inventory/:id', (req, res) => {
+app.delete('/api/inventory/:id', async (req, res) => {
   try {
-    const items = loadData();
     const itemId = req.params.id;
     
     // 商品を検索
-    const itemIndex = items.findIndex(item => item._id === itemId);
-    if (itemIndex === -1) {
+    const itemRef = doc(db, ITEMS_COLLECTION, itemId);
+    const itemSnapshot = await getDoc(itemRef);
+    
+    if (!itemSnapshot.exists()) {
       return res.status(404).json({ error: '商品が見つかりません' });
     }
     
-    // 削除する商品を保存
-    const deletedItem = items[itemIndex];
+    const item = itemSnapshot.data();
+    
+    // タイムスタンプをシリアライズ可能な形式に変換
+    const responseItem = {
+      _id: itemId,
+      ...item,
+      createdAt: item.createdAt ? item.createdAt.toDate().toISOString() : new Date().toISOString(),
+      updatedAt: item.updatedAt ? item.updatedAt.toDate().toISOString() : new Date().toISOString()
+    };
     
     // 商品を削除
-    items.splice(itemIndex, 1);
-    saveData(items);
+    await deleteDoc(itemRef);
     
     res.json({ 
       message: '商品が削除されました',
-      item: deletedItem
+      item: responseItem
     });
   } catch (err) {
     console.error('商品削除エラー:', err);
@@ -1018,32 +1129,41 @@ app.post('/api/inventory/form', (req, res) => {
 });
 
 // 一括NGワードチェック
-app.post('/api/batch-check-ng-words', (req, res) => {
+app.post('/api/batch-check-ng-words', async (req, res) => {
   try {
-    const items = loadData();
+    const inventoryRef = collection(db, ITEMS_COLLECTION);
+    const querySnapshot = await getDocs(inventoryRef);
+    
     let updatedItems = 0;
+    const updatePromises = [];
     
     // すべての商品のタイトルをNGワードでチェック
-    for (let i = 0; i < items.length; i++) {
-      const titleCheck = checkNgWords(items[i].title);
+    for (const document of querySnapshot.docs) {
+      const item = document.data();
+      const titleCheck = await checkNgWords(item.title);
       
-      if (items[i].containsNgWord !== titleCheck.containsNgWord || 
-          JSON.stringify(items[i].matchedNgWords || []) !== JSON.stringify(titleCheck.matchedWords)) {
-        items[i].containsNgWord = titleCheck.containsNgWord;
-        items[i].matchedNgWords = titleCheck.matchedWords;
-        items[i].updatedAt = new Date().toISOString();
+      if (item.containsNgWord !== titleCheck.containsNgWord || 
+          JSON.stringify(item.matchedNgWords || []) !== JSON.stringify(titleCheck.matchedWords)) {
+        
+        const itemRef = doc(db, ITEMS_COLLECTION, document.id);
+        updatePromises.push(
+          updateDoc(itemRef, {
+            containsNgWord: titleCheck.containsNgWord,
+            matchedNgWords: titleCheck.matchedWords,
+            updatedAt: serverTimestamp()
+          })
+        );
+        
         updatedItems++;
       }
     }
     
-    // 変更があった場合のみ保存
-    if (updatedItems > 0) {
-      saveData(items);
-    }
+    // すべての更新を実行
+    await Promise.all(updatePromises);
     
     res.json({
       message: 'NGワードの一括チェックが完了しました',
-      totalItems: items.length,
+      totalItems: querySnapshot.size,
       updatedItems: updatedItems
     });
   } catch (err) {
@@ -1052,9 +1172,41 @@ app.post('/api/batch-check-ng-words', (req, res) => {
   }
 });
 
-// アプリケーションの起動
-app.listen(PORT, () => {
-  console.log(`サーバーが http://localhost:${PORT} で起動しました`);
-  console.log(`在庫データは ${DATA_FILE} に保存されます`);
-  console.log(`NGワードは ${NG_WORDS_FILE} に保存されます`);
+// ルートパスのハンドリング
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
+
+// SPA対応（HTML5 pushState）
+app.get('*', (req, res) => {
+  // APIルートはスキップ
+  if (req.path.startsWith('/api/')) {
+    return res.status(404).json({ error: 'APIエンドポイントが見つかりません' });
+  }
+  
+  // それ以外はindexを返す（SPA対応）
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// サーバー起動時にNGワードを初期化
+async function startServer() {
+  try {
+    await initializeNgWords();
+    
+    // サーバーをVercel以外の環境で起動
+    if (!process.env.VERCEL) {
+      app.listen(PORT, () => {
+        console.log(`サーバーが http://localhost:${PORT} で起動しました`);
+        console.log(`環境: ${process.env.VERCEL ? 'Vercel' : 'ローカル'}`);
+      });
+    }
+  } catch (err) {
+    console.error('サーバー起動エラー:', err);
+  }
+}
+
+// サーバー起動
+startServer();
+
+// Vercel用にエクスポート
+module.exports = app;

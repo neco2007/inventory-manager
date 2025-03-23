@@ -1,29 +1,31 @@
 {
   "name": "inventory-manager",
   "version": "1.0.0",
+  "description": "メルカリからAmazonへの支援ツール",
   "main": "server.js",
-  "engines": {
-    "node": ">=14"
-  },
   "scripts": {
     "start": "node server.js",
-    "build": "mkdir -p data"
+    "dev": "nodemon server.js",
+    "build": "echo 'No build step required'"
   },
-  "dependencies": {
-    "body-parser": "^1.20.3",
-    "cors": "^2.8.5",
-    "express": "^4.21.2"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/neco2007/inventory-manager.git"
-  },
-  "keywords": [],
+  "keywords": [
+    "mercari",
+    "amazon",
+    "inventory",
+    "management"
+  ],
   "author": "",
-  "license": "ISC",
-  "bugs": {
-    "url": "https://github.com/neco2007/inventory-manager/issues"
+  "license": "MIT",
+  "dependencies": {
+    "body-parser": "^1.20.2",
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "firebase": "^9.19.1"
   },
-  "homepage": "https://github.com/neco2007/inventory-manager#readme",
-  "description": ""
+  "devDependencies": {
+    "nodemon": "^2.0.22"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
 }
