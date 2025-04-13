@@ -3,153 +3,50 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>在庫管理システム</title>
-  <link rel="stylesheet" href="styles.css">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+  <title>商品管理</title>
+  <link rel="stylesheet" href="https://unpkg.com/@vue/runtime-dom@next/dist/runtime-dom.css">
+  <script src="https://unpkg.com/vue@next"></script> <!-- Vue.js CDN -->
 </head>
 <body>
-  <header>
-    <div class="logo">
-      <h1>Amazon 一括商品登録用在庫管理システム</h1>
-    </div>
-    <div class="actions">
-      <button id="refreshButton" class="btn refresh">
-        <i class="fas fa-sync-alt"></i> 更新
-      </button>
-      <button id="downloadCsvButton" class="btn download">
-        <i class="fas fa-file-download"></i> CSVダウンロード
-      </button>
-      <button id="logoutButton" class="btn logout">
-        <i class="fas fa-sign-out-alt"></i> ログアウト
-      </button>
-    </div>
-  </header>
+  <div id="app"></div>
 
-  <nav>
-    <ul>
-      <li class="active"><a href="#"><i class="fas fa-clipboard-list"></i> 在庫ファイル一覧</a></li>
-      <li><a href="#"><i class="fas fa-bell"></i> お知らせ</a></li>
-      <li><a href="#"><i class="fas fa-cog"></i> 設定</a></li>
-    </ul>
-  </nav>
+  <script>
+    // 必要なライブラリのインポート
+    import { createApp, ref, onMounted } from 'vue'
 
-  <main>
-    <div class="toolbar">
-      <div class="filter">
-        <select id="statusFilter">
-          <option value="all">すべて</option>
-          <option value="待機中">待機中</option>
-          <option value="処理中">処理中</option>
-          <option value="完了">完了</option>
-        </select>
-        <button id="ngWordFilterBtn" class="filter-btn">NGワードあり</button>
-        <input type="text" id="searchInput" placeholder="商品を検索...">
-      </div>
-      <div class="bulk-actions">
-        <button id="checkNgWordsButton" class="btn warning">
-          <i class="fas fa-exclamation-triangle"></i> NGワード再チェック
-        </button>
-        <button id="createFileButton" class="btn create">
-          <i class="fas fa-file-alt"></i> 在庫ファイル作成
-        </button>
-        <button id="deleteSelectedButton" class="btn delete">
-          <i class="fas fa-trash"></i> 選択削除
-        </button>
-      </div>
-    </div>
+    createApp({
+      setup() {
+        const products = ref([])  // 商品データを格納する変数
 
-    <div class="inventory-list">
-      <table id="inventoryTable">
-        <thead>
-          <tr>
-            <th><input type="checkbox" id="selectAll"></th>
-            <th>#</th>
-            <th>商品URL</th>
-            <th>タイトル</th>
-            <th>状態</th>
-            <th>仕入価格</th>
-            <th>販売価格</th>
-            <th>登録日</th>
-            <th>操作</th>
-          </tr>
-        </thead>
-        <tbody id="inventoryItems">
-          <!-- JavaScriptで動的に生成 -->
-        </tbody>
-      </table>
-    </div>
+        // コンポーネントがマウントされたときに実行される処理
+        onMounted(() => {
+          // サーバーから商品データを取得
+          fetch('/products')
+            .then(response => response.json())  // JSON データとして受け取る
+            .then(data => {
+              products.value = data  // 取得したデータを products に格納
+            })
+            .catch(error => {
+              console.error('Error fetching products:', error)
+            })
+        })
 
-    <div id="loadingIndicator" class="loading">
-      <div class="spinner"></div>
-      <p>データを読み込み中...</p>
-    </div>
-
-    <div id="noItemsMessage" class="no-items" style="display: none;">
-      <p>商品がありません。メルカリから商品を追加してください。</p>
-    </div>
-  </main>
-
-  <!-- 商品編集モーダル -->
-  <div id="editModal" class="modal">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h2>商品情報編集</h2>
-        <span class="close">&times;</span>
-      </div>
-      <div class="modal-body">
-        <form id="editItemForm">
-          <input type="hidden" id="editItemId">
-          
-          <div class="form-group">
-            <label for="editTitle">タイトル:</label>
-            <input type="text" id="editTitle" required>
-            <div id="ngWordWarning" class="warning-text" style="display: none;">
-              <i class="fas fa-exclamation-triangle"></i> NGワードが含まれています
-            </div>
-          </div>
-          
-          <div class="form-group">
-            <label for="editUrl">商品URL:</label>
-            <input type="text" id="editUrl" required>
-          </div>
-          
-          <div class="form-group">
-            <label for="editPrice">仕入価格:</label>
-            <input type="number" id="editPrice" min="0" required>
-          </div>
-          
-          <div class="form-group">
-            <label for="editSellPrice">販売価格:</label>
-            <input type="number" id="editSellPrice" min="0" required>
-          </div>
-          
-          <div class="form-group">
-            <label for="editCondition">状態:</label>
-            <select id="editCondition">
-              <option value="新品">新品</option>
-              <option value="中古">中古</option>
-              <option value="ジャンク">ジャンク</option>
-            </select>
-          </div>
-          
-          <div class="form-group">
-            <label for="editStatus">ステータス:</label>
-            <select id="editStatus">
-              <option value="待機中">待機中</option>
-              <option value="処理中">処理中</option>
-              <option value="完了">完了</option>
-            </select>
-          </div>
-          
-          <div class="form-action">
-            <button type="submit" class="btn save">保存</button>
-            <button type="button" class="btn cancel">キャンセル</button>
-          </div>
-        </form>
-      </div>
-    </div>
-  </div>
-
-  <script src="app.js"></script>
+        return {
+          products
+        }
+      },
+      template: `
+        <div>
+          <h1>商品一覧</h1>
+          <div v-if="products.length === 0">商品がありません</div>
+          <ul>
+            <li v-for="(item, index) in products" :key="index">
+              {{ item.商品名 }} - {{ item.価格 }}円
+            </li>
+          </ul>
+        </div>
+      `
+    }).mount('#app')
+  </script>
 </body>
 </html>
